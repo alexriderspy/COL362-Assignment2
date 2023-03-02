@@ -1,0 +1,40 @@
+\set K 2
+\set X 10
+\set taglist '(\'Frank_Sinatra\',\'William_Shakespeare\',\'Elizabeth_II\',\'Adolf_Hitler\',\'George_W._Bush\')'
+\set commentlength 100
+\set lastdate '\'2011-07-19\''
+with a as (select id from tag where name in :taglist), 
+b as (select personid, tagid from person_hasinterest_tag where tagid in (select * from a)), 
+c as (select personid from b group by personid having count(distinct tagid) >= :K), 
+postmsg as (select id, creatorpersonid from post where creationdate < :lastdate), 
+commmsg as (select id, creatorpersonid from comment where length > :commentlength), 
+post_like as (select distinct personid, postid from postmsg, person_likes_post plp where plp.postid = postmsg.id),
+comment_like as (select distinct personid, commentid from commmsg, person_likes_comment plc where plc.commentid = commmsg.id),
+msg_like as (select distinct personid, postid as msgid from post_like union select distinct personid, commentid as msgid from comment_like),
+msg_count_like as (select distinct personid from msg_like group by personid having count(*) >= :X),
+fin as (select * from msg_count_like intersect select * from c),
+d as (select c1.personid as p1id, c2.personid as p2id from fin c1, fin c2 where c1.personid < c2.personid), 
+e as (select p1id, p2id from d where ((p1id, p2id) not in (select person1id, person2id from (select person1id,person2id from person_knows_person where person1id = p1id) as tb))), 
+f as (select p1id, p2id from e where (select count(*) from ((select distinct tagid from b where p1id = personid) intersect (select distinct tagid from b where p2id = personid)) as tb) >= :K),
+g as (select p1id, p2id, person2id as p3id from f, person_knows_person pkp where f.p1id = pkp.person1id),
+g2 as (select p1id, p2id, p3id from g where (p2id, p3id) in (select person1id, person2id from (select person1id, person2id from person_knows_person where person1id = p2id) as tb)),
+g3 as (select p1id, p2id, p3id from g where (p3id, p2id) in (select person1id, person2id from (select person1id, person2id from person_knows_person where person1id = p3id) as tb)),
+g1 as (select p1id, p2id, person1id as p3id from f, person_knows_person pkp where f.p1id = pkp.person2id),
+g12 as (select p1id, p2id, p3id from g1 where (p3id, p2id) in (select person1id, person2id from (select person1id, person2id from person_knows_person where person1id = p3id) as tb)),
+h as (select * from g2 union select * from g3 union select * from g12),
+p1id_h as (select distinct p1id from h),
+p2id_h as (select distinct p2id from h),
+post_like_p1id as (select distinct p1id, postid from p1id_h, post_like where post_like.personid = p1id_h.p1id),
+post_like_p2id as (select distinct p2id, postid from p2id_h, post_like where post_like.personid = p2id_h.p2id),
+i as (select h.p1id, p2id, p3id, postid from h, post_like_p1id where h.p1id = post_like_p1id.p1id),
+j as (select p1id, i.p2id, p3id, i.postid from i, post_like_p2id where i.p2id = post_like_p2id.p2id and i.postid = post_like_p2id.postid),
+k as (select p1id, p2id, p3id, postid as msgid from j, postmsg where postmsg.id = j.postid and postmsg.creatorpersonid = j.p3id),
+com_like_p1id as (select distinct p1id, commentid from p1id_h, comment_like where comment_like.personid = p1id_h.p1id),
+com_like_p2id as (select distinct p2id, commentid from p2id_h, comment_like where comment_like.personid = p2id_h.p2id),
+i2 as (select h.p1id, p2id, p3id, commentid from h, com_like_p1id where h.p1id = com_like_p1id.p1id),
+j2 as (select p1id, i2.p2id, p3id, i2.commentid from i2, com_like_p2id where i2.p2id = com_like_p2id.p2id and i2.commentid = com_like_p2id.commentid),
+k2 as (select p1id, p2id, p3id, commentid as msgid from j2, commmsg where commmsg.id = j2.commentid and commmsg.creatorpersonid = j2.p3id),
+k12 as (select * from k union select * from k2),
+l as (select p1id, p2id from k12 group by p1id, p2id having count(distinct msgid) >= :X),
+m as (select h.p1id, h.p2id, p3id from l,h where l.p1id = h.p1id and l.p2id = h.p2id)
+select p1id as person1sid, p2id as person2sid, count(p3id) as mutualfriendcount from m group by p1id, p2id order by p1id, mutualfriendcount desc, p2id;
